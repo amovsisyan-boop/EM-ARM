@@ -1,0 +1,5 @@
+# Candidate PII / confidential hiring data must never be committed
+output/
+src/
+*.xlsx
+*.csv
