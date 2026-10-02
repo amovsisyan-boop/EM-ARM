@@ -7,9 +7,12 @@ rows = [r for r in wb["Pipeline"].iter_rows(min_row=2, values_only=True) if (r[1
 
 SENIOR = {"Sr EM": "Senior Manager level (target)", "EM": "Manager level (confirm scope)", "Lead (verify)": "Team lead (confirm they manage people)",
           "Director+": "Director or above (only if open to Sr Manager)", "IC": "Individual contributor (probably not a fit)", "Unknown": "Title not known (check LinkedIn first)"}
-STAGE = {"Sourced": "Not reviewed yet", "Profile Review": "Profile reviewed only", "Outreach Sent": "Messaged only", "Replied / Interested": "Replied, screen not booked",
-         "Recruiter Screen": "Recruiter screen", "HM Screen": "Hiring-manager screen", "CP1 – Coding": "Coding interview (older EM loop)",
-         "System Design": "System design", "CP3 – Final Interview": "Final interview", "Offer": "Offer", "Hired": "Hired"}
+STAGE = {"Sourced": "Not reviewed yet", "Profile Review": "Profile review", "Outreach Sent": "Messaged", "Replied / Interested": "Replied – screen not booked",
+         "Recruiter Screen": "Recruiter screen done", "Screen Round": "Screen Round (Tech Retrospective + People Mgmt / HM)", "Full Loop": "Full Loop (System Design + XFN)",
+         "Post Loop": "Post Loop (Behavioral / PBP + VP Bar Raiser)", "Offer": "Offer", "Hired": "Hired"}
+DETAIL = {"Sourced": "", "Profile Review": "Profile reviewed only", "Outreach Sent": "Messaged only", "Replied / Interested": "Replied, screen not booked",
+          "Recruiter Screen": "Recruiter screen", "HM Screen": "Hiring-manager screen (old name for the HM round)", "CP1 – Coding": "Coding interview (older loop)",
+          "System Design": "System design", "CP3 – Final Interview": "Final interview with senior leader (older loop)", "Offer": "Offer", "Hired": "Hired"}
 RISK = {"Relocation/remote": "Relocation or remote-work issue", "Timing": "Timing / availability",
         "Stack gap": "Stack gap (not .NET/Java/C#)", "Retention risk": "Long tenure, hard to move", "Thin EM exp": "Limited EM experience",
         "Comp": "Compensation expectations", "Director-only": "Wants Director role only"}
@@ -35,9 +38,8 @@ def clean(n):
 def stand(r):
     st, stage, wave = r[8], r[7], r[10]
     if wave.startswith("W0"):
-        return {"Replied / Interested": "Replied – interested", "Recruiter Screen": "In process – recruiter screen done", "HM Screen": "In process – past hiring-manager screen",
-                "CP1 – Coding": "In process – reached coding interview", "System Design": "In process – reached system design",
-                "CP3 – Final Interview": "In process – reached final interview"}.get(stage, "In process")
+        return {"Replied / Interested": "Replied – interested", "Recruiter Screen": "In process – recruiter screen done", "Screen Round": "In process – reached Screen Round",
+                "Full Loop": "In process – reached Full Loop", "Post Loop": "In process – reached Post Loop"}.get(stage, "In process")
     if wave.startswith("W1"):
         return {"On Hold": "On hold – paused earlier", "Nurture – Re-engage Later": "Warm – timing wasn't right", "Not a Fit (Profile)": "Closed earlier – notes say try again"}.get(st, "Paused earlier")
     if wave.startswith("W3"): return "Messaged – no reply yet" if st != "No Response" else "Messaged – no reply after follow-ups"
@@ -45,8 +47,11 @@ def stand(r):
 def nxt(r):
     w, st = r[10], r[7]
     if w.startswith("W0"):
-        n = {"Replied / Interested": "book recruiter screen", "Recruiter Screen": "book hiring-manager screen", "HM Screen": "book technical retrospective",
-             "CP1 – Coding": "book system design", "System Design": "book final interviews", "CP3 – Final Interview": "check final-interview outcome"}.get(st, "confirm next step")
+        n = {"Replied / Interested": "book the recruiter screen", "Recruiter Screen": "book the Screen Round (Technical Retrospective + People Mgmt / HM round)",
+             "Screen Round": "book the Full Loop (System Design + XFN)", "Full Loop": "book Post Loop (Behavioral / PBP + VP Bar Raiser)",
+             "Post Loop": "check the debrief / offer decision"}.get(st, "confirm next step")
+        if st == "Full Loop":
+            n = {"CP1 – Coding": "book System Design and XFN (rest of the Full Loop)", "System Design": "book the XFN interview, then Post Loop"}.get(r[25], n)
         return f"Confirm still interested and available, then {n}", "Mon 5 Oct"
     if w.startswith("W1"): return "Send a personal message with the Growth AI pitch; ask about interest and timing", "Wed 7 Oct"
     if w.startswith("W3"): return "Send follow-up message (use the 4-step follow-up plan)", "Thu 8 Oct"
@@ -62,10 +67,10 @@ for r in rows:
     role = " @ ".join(x for x in (r[3], r[4]) if x) or "(not recorded – open LinkedIn)"
     if "Status conflict" in (r[23] or ""):
         risks = "; ".join(x for x in (risks, "Records disagree between tabs – verify before contacting") if x)
-    out.append([r[9] or "C", r[1], role, SENIOR[r[5]], stand(r), STAGE[r[7]], detail, risks, na, when, "", "", "", r[2]])
+    out.append([r[9] or "C", r[1], role, SENIOR[r[5]], stand(r), STAGE[r[7]], DETAIL.get(r[25], ""), detail, risks, na, when, "", "", "", r[2]])
 pr = {"A": 0, "B": 1, "C": 2}
 out.sort(key=lambda x: (pr[x[0]], {"In": 0, "Re": 0}.get(x[4][:2], 1), x[4]))
-hdr = ["Priority (A = first)", "Candidate", "Current role", "Seniority fit for Sr Manager role", "Where they stand today", "Furthest step reached", "What we know", "Watch-outs",
+hdr = ["Priority (A = first)", "Candidate", "Current role", "Seniority fit for Sr Manager role", "Where they stand today", "Stage in current interview process", "Furthest step reached (older notes)", "What we know", "Watch-outs",
        "Next step", "Target date", "Owner", "Date contacted", "Outcome / notes", "LinkedIn"]
 with open(OUT, "w", encoding="utf8", newline="") as f:
     w = csv.writer(f, lineterminator="\n"); w.writerow(hdr); w.writerows(out)

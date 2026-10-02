@@ -21,21 +21,31 @@ from openpyxl.worksheet.datavalidation import DataValidation
 RESTART = "2026-10-02"
 
 # ----------------------------------------------------------------- taxonomy
+LEGACY_STAGES = ["Sourced", "Profile Review", "Outreach Sent", "Replied / Interested", "Recruiter Screen", "HM Screen", "CP1 – Coding",
+                 "System Design", "CP3 – Final Interview", "Offer", "Hired"]
+LIDX = {s: i for i, s in enumerate(LEGACY_STAGES)}
+
+# Current process: "Engineering Interview Process – Proposal" (EM / eDir loop)
 STAGES = [
     ("Sourced", "On the list, not yet reviewed."),
-    ("Profile Review", "TA / HM reviewing the LinkedIn profile. Exit: 'Proceed' or 'Not a Fit'."),
+    ("Profile Review", "TA / HM reviewing the LinkedIn profile. Exit: Proceed or Not a Fit."),
     ("Outreach Sent", "First message sent, waiting for reply. Follow-up cadence applies."),
-    ("Replied / Interested", "Candidate answered and is open to a call. Exit: RS booked."),
-    ("Recruiter Screen", "RS: motivation, level, comp range, relocation/office, coding-interview expectation."),
-    ("HM Screen", "Hiring-manager conversation: leadership scope, people management depth, AI/product fit."),
-    ("CP1 – Coding", "Hands-on coding pair (C#/Java/C++). Must be willing to code; common drop-off point."),
-    ("System Design", "System / architecture design interview."),
-    ("CP3 – Final Interview", "Final panel (architecture discussion with senior engineering leadership)."),
-    ("Offer", "Offer approved / extended / negotiating."),
+    ("Replied / Interested", "Candidate answered and is open to a call. Exit: recruiter screen booked."),
+    ("Recruiter Screen", "Motivation, level, scope, comp range, relocation / office, process walkthrough."),
+    ("Screen Round", "ADVANCE GATE – both must pass: Technical Retrospective (45 min, no coding) + People Management / HM round (45 min)."),
+    ("Full Loop", "System Design (45 min, HackerRank canvas) + Cross-Org / XFN collaboration (PM or Design director). Coding (60 min) ONLY for Frontline Managers; not required for Sr Manager and above."),
+    ("Post Loop", "Behavioral with People Business Partner (PBP) + VP Bar Raiser. Every EM loop includes exactly one PBP interview."),
+    ("Offer", "Debrief quorum decided; offer approved / extended / negotiating."),
     ("Hired", "Offer accepted."),
 ]
 STAGE_NAMES = [s for s, _ in STAGES]
 SIDX = {s: i for i, s in enumerate(STAGE_NAMES)}
+NEWMAP = {"Sourced": "Sourced", "Profile Review": "Profile Review", "Outreach Sent": "Outreach Sent", "Replied / Interested": "Replied / Interested",
+          "Recruiter Screen": "Recruiter Screen", "HM Screen": "Screen Round", "CP1 – Coding": "Full Loop", "System Design": "Full Loop",
+          "CP3 – Final Interview": "Post Loop", "Offer": "Offer", "Hired": "Hired"}
+NEXT_STEP = {"Sourced": "profile review", "Profile Review": "outreach", "Outreach Sent": "a reply", "Replied / Interested": "Recruiter Screen",
+             "Recruiter Screen": "Screen Round (Technical Retrospective + People Mgmt / HM round)", "Screen Round": "Full Loop (System Design + XFN)",
+             "Full Loop": "Post Loop (Behavioral / PBP + VP Bar Raiser)", "Post Loop": "debrief and offer decision", "Offer": "offer close", "Hired": "onboarding"}
 
 STATUSES = [
     ("Active", "Open", "In process; a next step is owed by us or the candidate."),
@@ -151,7 +161,7 @@ def stage_from_text(t):
 
 def furthest(*stages):
     ss = [s for s in stages if s]
-    return max(ss, key=lambda s: SIDX[s]) if ss else None
+    return max(ss, key=lambda s: LIDX[s]) if ss else None
 
 
 # ----------------------------------------------------------------- loading
@@ -396,7 +406,7 @@ def tidy_notes(parts, cap=900):
 def risks(text):
     t = text.lower(); tags = []
     pats = [("Relocation/remote", r"relocat|remote|abroad|uk\b|abu dhabi|kazakhstan|us/canada|move to us"),
-            ("Comp", r"compensation|comp expect|base comp"), ("Won't code", r"coding interview|codepair|passing coding|uncertain about moving forward with a coding"),
+            ("Comp", r"compensation|comp expect|base comp"), ("Coding concern (Frontline only)", r"coding interview|codepair|passing coding|uncertain about moving forward with a coding"),
             ("Timing", r"busy|timing|time for interview|fall|few months|4-6 months|several months|maternity|vacation"),
             ("Retention risk", r"embedded|long tenure|locked in|stock|unlikely to leave|only one place"),
             ("Stack gap", r"\bfe\b|front-?end|\bqa\b|test engineering|ios|android|mobile|c\+\+|edA|python|ruby|golang|sre"),
@@ -479,6 +489,8 @@ def finish_pipeline(rec):
     if status is None:
         status = "Active"; stage = stage or ("Profile Review" if rec["approved"] else "Sourced")
     if stage is None: stage = "Outreach Sent" if status in ("No Response",) else "Profile Review"
+    rec["detail_stage"] = stage                 # most specific legacy step reached
+    stage = NEWMAP[stage]
     rec["status"], rec["stage"] = status, stage
     notes_l = rec["textall"].lower()
     reconsider = bool(NURTURE_RE.search(rec["notes"]))
@@ -508,7 +520,7 @@ def finish_pipeline(rec):
         else: pr = "C"
         if re.search(r"c\+\+|eda|embedded|long tenure|front-?end|\bqa\b", notes_l) and pr == "A" and wave == "W2 Fresh outreach": pr = "B"
     rec["priority"] = pr
-    nxt = {"W0 Validate & continue": f"Confirm still live → schedule {STAGE_NAMES[min(idx + 1, len(STAGE_NAMES) - 1)]}",
+    nxt = {"W0 Validate & continue": f"Confirm still live → schedule {NEXT_STEP[stage]}",
            "W1 Re-engage warm": "Personal re-engage msg (new Growth AI scope); confirm interest + timing",
            "W2 Fresh outreach": "HM quick-review → send outreach #1" if stage in ("Sourced", "Profile Review") and not rec["approved"] else "Send outreach #1",
            "W3 Follow-up (no reply)": "Follow-up #1 (follow cadence)"}.get(wave, "")
@@ -653,8 +665,8 @@ def build(args):
     # ---------------- Pipeline
     H = ["ID", "Candidate", "LinkedIn", "Current Title", "Current Company", "Level Fit", "Interest in Role", "Stage", "Status", "Priority",
          "Restart Wave", "Owner", "Touches (restart)", "Last Touch", "Auto Follow-up", "Next Action", "Next Action Date", "Due Date", "Due Flag",
-         "Risks / Flags", "Latest Notes (consolidated)", "Source Tabs", "Legacy Status → Stage", "Data Check", "Dup Check"]
-    W = [8, 24, 36, 30, 24, 13, 18, 20, 22, 8, 24, 16, 10, 12, 13, 44, 14, 12, 12, 26, 90, 28, 50, 34, 18]
+         "Risks / Flags", "Latest Notes (consolidated)", "Source Tabs", "Legacy Status → Stage", "Data Check", "Dup Check", "Furthest step (old-loop detail)"]
+    W = [8, 24, 36, 30, 24, 13, 18, 22, 22, 8, 24, 16, 10, 12, 13, 44, 14, 12, 12, 26, 90, 28, 50, 34, 18, 26]
     rows = []
     for i, r in enumerate(P, 2):
         rows.append([r["id"], r["name"], r["url"], r["title"], r["company"], r["level"], r["interest"], r["stage"], r["status"], r["priority"],
@@ -663,13 +675,13 @@ def build(args):
                      f'=IF(OR(I{i}="Not Interested",I{i}="Not a Fit (Profile)",I{i}="Rejected by ST",I{i}="Withdrew",I{i}="Hired"),"",IF(AND(O{i}="",Q{i}=""),"",MIN(IF(O{i}="",99999,O{i}),IF(Q{i}="",99999,Q{i}))))',
                      f'=IF(R{i}="","",IF(R{i}<TODAY(),"OVERDUE",IF(R{i}<=TODAY()+7,"This week","")))',
                      r["risks"], r["notes"], r["srcs"], r["legacy"], r["check"],
-                     f'=IF(C{i}="","",IF(COUNTIF($C$2:$C${nP},C{i})>1,"DUPLICATE",IF(COUNTIF(\'Other Roles\'!$C:$C,C{i})>0,"ALSO IN OTHER ROLES","")))'])
+                     f'=IF(C{i}="","",IF(COUNTIF($C$2:$C${nP},C{i})>1,"DUPLICATE",IF(COUNTIF(\'Other Roles\'!$C:$C,C{i})>0,"ALSO IN OTHER ROLES","")))', r["detail_stage"]])
     ws = sheet(wb, "Pipeline", H, W, rows, freeze="C2", tab=TEAL)
     for r in ws.iter_rows(min_row=2):
         for c in r:
             if c.column_letter in "NOQR": c.number_format = "dd-mmm-yy"
         r[0].font = Font(name="Arial", size=10, color=GREY); r[1].font = Font(name="Arial", size=10, bold=True)
-    dv_list(ws, "F", "=Lists!$E$2:$E$7", nP); dv_list(ws, "G", "=Lists!$F$2:$F$4", nP); dv_list(ws, "H", "=Lists!$A$2:$A$12", nP, False)
+    dv_list(ws, "F", "=Lists!$E$2:$E$7", nP); dv_list(ws, "G", "=Lists!$F$2:$F$4", nP); dv_list(ws, "H", "=Lists!$A$2:$A$11", nP, False)
     dv_list(ws, "I", "=Lists!$B$2:$B$10", nP, False); dv_list(ws, "J", "=Lists!$G$2:$G$4", nP); dv_list(ws, "K", "=Lists!$D$2:$D$7", nP)
     dv_list(ws, "L", "=Lists!$H$2:$H$7", nP); dv_list(ws, "M", "=Lists!$I$2:$I$5", nP)
     rng = f"A2:{L(len(H))}{nP}"
@@ -737,9 +749,10 @@ def build(args):
         d.cell(r, 3, f'=COUNTIFS(Pipeline!$H$2:$H${nP},$A{r},Pipeline!$I$2:$I${nP},"On Hold")+COUNTIFS(Pipeline!$H$2:$H${nP},$A{r},Pipeline!$I$2:$I${nP},"Nurture*")')
         d.cell(r, 4, f'=E{r}-B{r}-C{r}')
         d.cell(r, 5, f'=COUNTIF(Pipeline!$H$2:$H${nP},$A{r})')
-        d.cell(r, 6, f'=SUM(E{r}:E$16)')
-    d.cell(17, 1, "Total").font = Font(bold=True)
-    for j in range(2, 6): d.cell(17, j, f"=SUM({L(j)}6:{L(j)}16)").font = Font(bold=True)
+        d.cell(r, 6, f'=SUM(E{r}:E${5 + len(STAGE_NAMES)})')
+    last = 5 + len(STAGE_NAMES)
+    d.cell(last + 1, 1, "Total").font = Font(bold=True)
+    for j in range(2, 6): d.cell(last + 1, j, f"=SUM({L(j)}6:{L(j)}{last})").font = Font(bold=True)
     d["H4"] = "Needs attention"; d["H4"].font = Font(name="Arial", size=12, bold=True)
     kp = [("OVERDUE actions", f'=COUNTIF(Pipeline!$S$2:$S${nP},"OVERDUE")'), ("Due this week", f'=COUNTIF(Pipeline!$S$2:$S${nP},"This week")'),
           ("Duplicate LinkedIn rows", f'=COUNTIF(Pipeline!$Y$2:$Y${nP},"DUPLICATE")'), ("Rows with data check flags", f'=COUNTIF(Pipeline!$X$2:$X${nP},"?*")'),
@@ -764,7 +777,7 @@ def build(args):
         for c in row:
             if c.font == Font(): c.font = BFONT
     ch = BarChart(); ch.type = "bar"; ch.style = 10; ch.title = "Open candidates by stage"
-    ch.add_data(Reference(d, min_col=2, min_row=5, max_row=16), titles_from_data=True); ch.set_categories(Reference(d, min_col=1, min_row=6, max_row=16))
+    ch.add_data(Reference(d, min_col=2, min_row=5, max_row=5 + len(STAGE_NAMES)), titles_from_data=True); ch.set_categories(Reference(d, min_col=1, min_row=6, max_row=5 + len(STAGE_NAMES)))
     ch.height, ch.width = 9, 16; ch.y_axis.delete = False; ch.x_axis.delete = False
     d.add_chart(ch, "K4")
 
@@ -794,7 +807,7 @@ def build(args):
              ("Legacy statuses", "Statuses were carried over as of each legacy tab's last edit (dates unknown). All 'Active' rows are therefore in Wave W0 'Validate & continue' – confirm they are still live before acting."),
              ("Precedence", "When the same person appears with different statuses, the most recent consolidated source wins (Full Pipeline > FY26-27 list > Hiring NEW (Sr) EM > Director tabs > OLD EM); furthest stage reached is kept. Conflicts are flagged in Data Check."),
              ("Proposed dates", f"Next Action Dates are proposed starting {RESTART} (W0 Mon 5-Oct, W2-A 6-Oct, W1 7-Oct, W3 8-Oct). Edit freely."),
-             ("Role brief", "See 'Role Brief'. The JD page could not be opened from the build environment – paste the JD text there.")]
+             ("Role brief", "See 'Role Brief' tab and the Google Doc 'Growth AI – (Sr.) EM Armenia: Role Brief, Pitch & Recruiter Screening Kit'. Interview stages follow the 'Engineering Interview Process – Proposal' (EM / eDir loop).")]
     for i, (a, b) in enumerate(lines, 1):
         pb.cell(i, 1, a);
         if b is None and a: pb.cell(i, 1).font = Font(name="Arial", size=12, bold=True, color="FFFFFF"); pb.cell(i, 1).fill = HFILL; pb.cell(i, 2).fill = HFILL
@@ -805,15 +818,14 @@ def build(args):
     # ---------------- Role brief
     rb = wb.create_sheet("Role Brief", 2); rb.sheet_properties.tabColor = NAVY
     rb.column_dimensions["A"].width = 28; rb.column_dimensions["B"].width = 120
-    brief = [("Role", "(Sr.) Engineering Manager – Growth AI, Yerevan, Armenia (ServiceTitan)"),
-             ("JD link", "https://servicetitan.wd1.myworkdayjobs.com/ServiceTitan/job/Yerevan-Armenia/Director--Software-Engineering_JR112035"),
-             ("⚠ Check", "The JD URL title reads 'Director, Software Engineering'. Confirm with the HM whether this req is Director, Sr EM, or a combined EM/Sr EM/Director band. Level Fit + Interest in Role depend on it."),
-             ("Status of this brief", "DRAFT inferred from legacy notes – the JD page could not be fetched. Replace the rows below with the JD text."),
-             ("Profile signals in legacy notes", "Hands-on technical leader who can pass coding (CP1) + system design + final architecture panel; manages engineers/managers on distributed product systems; .NET/C#/Java (C++ tolerated) B2B SaaS; AI/automation and data-platform exposure valued ('directly matches JD's AI initiative'); product-company background preferred."),
-             ("Disqualifiers seen repeatedly", "<2–3 years real EM experience; QA/test or pure program/delivery management; frontend/mobile-only background; consulting-only; unwilling to take a coding interview; remote-only or relocating abroad; Director-only ambition."),
-             ("Process", "TA review → outreach → RS → HM screen → CP1 coding → system design → CP3 final → offer."),
-             ("Pitch hooks (to validate)", "Growth AI charter, Yerevan engineering hub scale, ownership of a team in a product with real customers, path Sr EM → Director."),
-             ("Comp / level band", "(fill in)"), ("Hiring manager / panel", "(fill in)"), ("Target start / headcount", "(fill in)")]
+    brief = [("Role", "Senior Manager, Software Engineering – Growth AI / DemandGen, Yerevan (JR112035). Reports to the Armenia Engineering Director. Grade 34. (Workday title reads 'Director, Software Engineering' – confirm level.)"),
+             ("Domain", "AI-first initiative: autonomous lead generation, AI agents (Voice, SMS, Email), self-optimizing campaigns. One of six pillars of the Agentic OS. Core stack .NET / C# / ASP.NET Core / Azure / SQL Server."),
+             ("Interview loop (EM / eDir)", "Screen (gate, both must pass): Technical Retrospective 45m + People Management / HM round 45m. Full Loop: System Design 45m + Cross-Org / XFN 45m. Coding 60m ONLY for Frontline Managers (not required for Sr Manager and above; unguarded AI default, HM may choose guarded). Post Loop: Behavioral with PBP + VP Bar Raiser. Binary Yes/No scoring, feedback in 24h, no single round overrides another."),
+             ("Leveling signals for managers", "People Management, XFN and Behavioral are the primary leveling signals. Down-leveling to the highest level cleared is a normal outcome."),
+             ("Status of the process", "'Engineering Interview Process – Proposal' is being piloted; the EM loop is still being built out. Confirm the current version with TA before quoting details to candidates."),
+             ("Profile signals", "Hands-on technical credibility (retrospective on a real project), people leadership (coaching, performance, hiring), AI/ML product curiosity, ambiguity tolerance, cross-functional influence, stack adaptability."),
+             ("Disqualifiers seen repeatedly", "Under 2–3 years of real EM experience; QA/test or pure delivery management; resource-manager titles without ownership; frontend/mobile-only with no backend appetite; consulting-only; Director-only ambition; relocation- or remote-only."),
+             ("Comp / level band", "(fill in)"), ("Hiring manager / panel", "(fill in)"), ("Headcount / target start", "(fill in)")]
     for i, (a, b) in enumerate(brief, 1):
         rb.cell(i, 1, a).font = Font(name="Arial", size=10, bold=True); rb.cell(i, 2, b).font = BFONT
         rb.cell(i, 2).alignment = Alignment(wrap_text=True, vertical="top"); rb.cell(i, 1).alignment = Alignment(vertical="top")
