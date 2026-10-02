@@ -33,7 +33,7 @@ STAGES = [
     ("Replied / Interested", "Candidate answered and is open to a call. Exit: recruiter screen booked."),
     ("Recruiter Screen", "Motivation, level, scope, comp range, relocation / office, process walkthrough."),
     ("Screen Round", "ADVANCE GATE – both must pass: Technical Retrospective (45 min, no coding) + People Management / HM round (45 min)."),
-    ("Full Loop", "System Design (45 min, HackerRank canvas) + Cross-Org / XFN collaboration (PM or Design director). Coding (60 min) ONLY for Frontline Managers; not required for Sr Manager and above."),
+    ("Full Loop", "System Design (45 min, HackerRank canvas) + Cross-Org / XFN collaboration (PM or Design director). Coding (60 min) is NOT a standard round: schedule it only after the other rounds, and only for a candidate who looks like a better fit for the non-senior (Frontline Manager) level. Not required for Sr Manager and above."),
     ("Post Loop", "Behavioral with People Business Partner (PBP) + VP Bar Raiser. Every EM loop includes exactly one PBP interview."),
     ("Offer", "Debrief quorum decided; offer approved / extended / negotiating."),
     ("Hired", "Offer accepted."),
@@ -820,7 +820,7 @@ def build(args):
     rb.column_dimensions["A"].width = 28; rb.column_dimensions["B"].width = 120
     brief = [("Role", "Senior Manager, Software Engineering – Growth AI / DemandGen, Yerevan (JR112035). Reports to the Armenia Engineering Director. Grade 34. (Workday title reads 'Director, Software Engineering' – confirm level.)"),
              ("Domain", "AI-first initiative: autonomous lead generation, AI agents (Voice, SMS, Email), self-optimizing campaigns. One of six pillars of the Agentic OS. Core stack .NET / C# / ASP.NET Core / Azure / SQL Server."),
-             ("Interview loop (EM / eDir)", "Screen (gate, both must pass): Technical Retrospective 45m + People Management / HM round 45m. Full Loop: System Design 45m + Cross-Org / XFN 45m. Coding 60m ONLY for Frontline Managers (not required for Sr Manager and above; unguarded AI default, HM may choose guarded). Post Loop: Behavioral with PBP + VP Bar Raiser. Binary Yes/No scoring, feedback in 24h, no single round overrides another."),
+             ("Interview loop (EM / eDir)", "Screen (gate, both must pass): Technical Retrospective 45m + People Management / HM round 45m. Full Loop: System Design 45m + Cross-Org / XFN 45m. Coding 60m is conditional: scheduled only after the other rounds, and only for a candidate who looks like a better fit for the non-senior (Frontline Manager) level; not required for Sr Manager and above (unguarded AI default, HM may choose guarded). Post Loop: Behavioral with PBP + VP Bar Raiser. Binary Yes/No scoring, feedback in 24h, no single round overrides another."),
              ("Leveling signals for managers", "People Management, XFN and Behavioral are the primary leveling signals. Down-leveling to the highest level cleared is a normal outcome."),
              ("Status of the process", "'Engineering Interview Process – Proposal' is being piloted; the EM loop is still being built out. Confirm the current version with TA before quoting details to candidates."),
              ("Profile signals", "Hands-on technical credibility (retrospective on a real project), people leadership (coaching, performance, hiring), AI/ML product curiosity, ambiguity tolerance, cross-functional influence, stack adaptability."),
